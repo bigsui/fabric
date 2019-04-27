@@ -134,7 +134,7 @@ func deploySysCC(chainID string, syscc *SystemChaincode) error {
 	version := util.GetSysCCVersion()
 
 	cccid := ccprov.GetCCContext(chainID, chaincodeDeploymentSpec.ChaincodeSpec.ChaincodeId.Name, version, txid, true, nil, nil)
-
+//部署连码
 	_, _, err = ccprov.ExecuteWithErrorFilter(ctxt, cccid, chaincodeDeploymentSpec)
 
 	sysccLogger.Infof("system chaincode %s/%s(%s) deployed", syscc.Name, chainID, syscc.Path)

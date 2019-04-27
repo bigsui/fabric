@@ -85,13 +85,16 @@ func (s *SupportImpl) GetChaincodeDeploymentSpecFS(cds *pb.ChaincodeDeploymentSp
 }
 
 //Execute - execute proposal, return original response of chaincode
+//执行提案处理，启动容器
 func (s *SupportImpl) Execute(ctxt context.Context, cid, name, version, txid string, syscc bool, signedProp *pb.SignedProposal, prop *pb.Proposal, spec interface{}) (*pb.Response, *pb.ChaincodeEvent, error) {
 	cccid := ccprovider.NewCCContext(cid, name, version, txid, syscc, signedProp, prop)
 
 	switch spec.(type) {
 	case *pb.ChaincodeDeploymentSpec:
+		//部署
 		return chaincode.Execute(ctxt, cccid, spec)
 	case *pb.ChaincodeInvocationSpec:
+		//调用
 		cis := spec.(*pb.ChaincodeInvocationSpec)
 
 		// decorate the chaincode input

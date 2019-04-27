@@ -110,33 +110,35 @@ func (e *PeerConfiger) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 
 	switch fname {
 	case JoinChain:
+		//加入通道
+		//校验参数
 		if args[1] == nil {
 			return shim.Error("Cannot join the channel <nil> configuration block provided")
 		}
-
+		//解析区块参数
 		block, err := utils.GetBlockFromBlockBytes(args[1])
 		if err != nil {
 			return shim.Error(fmt.Sprintf("Failed to reconstruct the genesis block, %s", err))
 		}
-
+		//获取链id
 		cid, err := utils.GetChainIDFromBlock(block)
 		if err != nil {
 			return shim.Error(fmt.Sprintf("\"JoinChain\" request failed to extract "+
 				"channel id from the block due to [%s]", err))
 		}
-
+		//校验区块
 		if err := validateConfigBlock(block); err != nil {
 			return shim.Error(fmt.Sprintf("\"JoinChain\" for chainID = %s failed because of validation "+
 				"of configuration block, because of %s", cid, err))
 		}
 
 		// 2. check local MSP Admins policy
-		// TODO: move to ACLProvider once it will support chainless ACLs
+		// 校验访问策略
 		if err = e.policyChecker.CheckPolicyNoChannel(mgmt.Admins, sp); err != nil {
 			return shim.Error(fmt.Sprintf("\"JoinChain\" request failed authorization check "+
 				"for channel [%s]: [%s]", cid, err))
 		}
-
+		//加入通道
 		return joinChain(cid, block)
 	case GetConfigBlock:
 		// 2. check policy
@@ -208,22 +210,25 @@ func validateConfigBlock(block *common.Block) error {
 // joinChain will join the specified chain in the configuration block.
 // Since it is the first block, it is the genesis block containing configuration
 // for this chain, so we want to update the Chain object with this info
+//cscc加入通道
 func joinChain(chainID string, block *common.Block) pb.Response {
+	// 创建本地账本对象 kvLedger
 	if err := peer.CreateChainFromBlock(block); err != nil {
 		return shim.Error(err.Error())
 	}
-
+	 //初始化链id
 	peer.InitChain(chainID)
-
+	//创建区块事件
 	bevent, _, _, err := producer.CreateBlockEvents(block)
 	if err != nil {
 		cnflogger.Errorf("Error processing block events for block number [%d]: %s", block.Header.Number, err)
 	} else {
+		//发送区块事件
 		if err := producer.Send(bevent); err != nil {
 			cnflogger.Errorf("Channel [%s] Error sending block event for block number [%d]: %s", chainID, block.Header.Number, err)
 		}
 	}
-
+	//返回成功结果
 	return shim.Success(nil)
 }
 

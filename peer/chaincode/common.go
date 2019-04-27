@@ -301,6 +301,7 @@ type ChaincodeCmdFactory struct {
 // InitCmdFactory init the ChaincodeCmdFactory with default clients
 func InitCmdFactory(isEndorserRequired, isOrdererRequired bool) (*ChaincodeCmdFactory, error) {
 	var err error
+	// endorder客户端
 	var endorserClient pb.EndorserClient
 	if isEndorserRequired {
 		endorserClient, err = common.GetEndorserClientFnc()
@@ -308,13 +309,14 @@ func InitCmdFactory(isEndorserRequired, isOrdererRequired bool) (*ChaincodeCmdFa
 			return nil, fmt.Errorf("Error getting endorser client %s: %s", chainFuncName, err)
 		}
 	}
-
+	//签名
 	signer, err := common.GetDefaultSignerFnc()
 	if err != nil {
 		return nil, fmt.Errorf("Error getting default signer: %s", err)
 	}
-
+	//广播客户端
 	var broadcastClient common.BroadcastClient
+	//定义获取order节点方式
 	if isOrdererRequired {
 		if len(common.OrderingEndpoint) == 0 {
 			orderingEndpoints, err := common.GetOrdererEndpointOfChainFnc(channelID, signer, endorserClient)
@@ -336,9 +338,9 @@ func InitCmdFactory(isEndorserRequired, isOrdererRequired bool) (*ChaincodeCmdFa
 		}
 	}
 	return &ChaincodeCmdFactory{
-		EndorserClient:  endorserClient,
-		Signer:          signer,
-		BroadcastClient: broadcastClient,
+		EndorserClient:  endorserClient,  // 背书节点
+		Signer:          signer, // 签名
+		BroadcastClient: broadcastClient, // 广播客户端
 	}, nil
 }
 

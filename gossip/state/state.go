@@ -243,6 +243,7 @@ func NewGossipStateProvider(chainID string, services *ServicesMediator, ledger l
 	// Listen for incoming communication
 	go s.listen()
 	// Deliver in order messages into the incoming channel
+	// 循环监听事件
 	go s.deliverPayloads()
 	// Execute anti entropy to fill missing gaps
 	go s.antiEntropy()
@@ -529,8 +530,10 @@ func (s *GossipStateProviderImpl) deliverPayloads() {
 		case <-s.payloads.Ready():
 			logger.Debugf("[%s] Ready to transfer payloads (blocks) to the ledger, next block number is = [%d]", s.chainID, s.payloads.Next())
 			// Collect all subsequent payloads
+			// 弹出负载消息
 			for payload := s.payloads.Pop(); payload != nil; payload = s.payloads.Pop() {
 				rawBlock := &common.Block{}
+				// 解析block
 				if err := pb.Unmarshal(payload.Data, rawBlock); err != nil {
 					logger.Errorf("Error getting block with seqNum = %d due to (%+v)...dropping block", payload.SeqNum, errors.WithStack(err))
 					continue
@@ -544,6 +547,8 @@ func (s *GossipStateProviderImpl) deliverPayloads() {
 
 				// Read all private data into slice
 				var p util.PvtDataCollections
+
+				// 解析隐私数据
 				if payload.PrivateData != nil {
 					err := p.Unmarshal(payload.PrivateData)
 					if err != nil {
@@ -551,6 +556,7 @@ func (s *GossipStateProviderImpl) deliverPayloads() {
 						continue
 					}
 				}
+				// 提交区块
 				if err := s.commitBlock(rawBlock, p); err != nil {
 					if executionErr, isExecutionErr := err.(*vsccErrors.VSCCExecutionFailureError); isExecutionErr {
 						logger.Errorf("Failed executing VSCC due to %v. Aborting chain processing", executionErr)
@@ -772,6 +778,7 @@ func (s *GossipStateProviderImpl) addPayload(payload *proto.Payload, blockingMod
 func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.PvtDataCollections) error {
 
 	// Commit block with available private transactions
+	// 保存区块和隐私数据
 	if err := s.ledger.StoreBlock(block, pvtData); err != nil {
 		logger.Errorf("Got error while committing(%+v)", errors.WithStack(err))
 		return err

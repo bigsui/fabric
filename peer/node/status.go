@@ -25,11 +25,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
 )
-
 func statusCmd() *cobra.Command {
 	return nodeStatusCmd
 }
-
+// peer nodestatus子命令
 var nodeStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Returns status of the node.",
@@ -39,15 +38,16 @@ var nodeStatusCmd = &cobra.Command{
 	},
 }
 
+// 节点状态函数
 func status() (err error) {
-
+	// 获取admin客户端，根据配置peer.address
 	adminClient, err := common.GetAdminClient()
 	if err != nil {
 		logger.Warningf("%s", err)
 		fmt.Println(&pb.ServerStatus{Status: pb.ServerStatus_UNKNOWN})
 		return err
 	}
-
+	// 获取状态
 	status, err := adminClient.GetStatus(context.Background(), &empty.Empty{})
 	if err != nil {
 		logger.Infof("Error trying to get status from local peer: %s", err)
@@ -55,6 +55,7 @@ func status() (err error) {
 		fmt.Println(&pb.ServerStatus{Status: pb.ServerStatus_UNKNOWN})
 		return err
 	}
+	// 打印状态
 	fmt.Println(status)
 	return nil
 }

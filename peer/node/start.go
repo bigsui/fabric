@@ -84,6 +84,7 @@ var nodeStartCmd = &cobra.Command{
 	Short: "Starts the node.",
 	Long:  `Starts a node that interacts with the network.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// 启动节点
 		return serve(args)
 	},
 }
@@ -96,12 +97,7 @@ func initSysCCs() {
 }
 
 func serve(args []string) error {
-	// currently the peer only works with the standard MSP
-	// because in certain scenarios the MSP has to make sure
-	// that from a single credential you only have a single 'identity'.
-	// Idemix does not support this *YET* but it can be easily
-	// fixed to support it. For now, we just make sure that
-	// the peer only comes up with the standard MSP
+  // 获取msp类型，分为idemix类型和fabric 。v1.1 只支持fabric，
 	mspType := mgmt.GetLocalMSP().GetType()
 	if mspType != msp.FABRIC {
 		panic("Unsupported msp type " + msp.ProviderTypeToString(mspType))
@@ -109,15 +105,15 @@ func serve(args []string) error {
 
 	logger.Infof("Starting %s", version.GetInfo())
 
-	//startup aclmgmt with default ACL providers (resource based and default 1.0 policies based).
-	//Users can pass in their own ACLProvider to RegisterACLProvider (currently unit tests do this)
+	//注册资源访问策略
 	aclmgmt.RegisterACLProvider(nil)
 
-	//initialize resource management exit
+	//初始化本地账本管理器
 	ledgermgmt.Initialize(peer.ConfigTxProcessors)
 
 	// Parameter overrides must be processed before any parameters are
 	// cached. Failures to cache cause the server to terminate immediately.
+	// 设置开发模式
 	if chaincodeDevMode {
 		logger.Info("Running in chaincode development mode")
 		logger.Info("Disable loading validity system chaincode")
@@ -125,17 +121,18 @@ func serve(args []string) error {
 		viper.Set("chaincode.mode", chaincode.DevModeUserRunsChaincode)
 
 	}
-
+	//缓存配置信息：peer地址、节点
 	if err := peer.CacheConfiguration(); err != nil {
 		return err
 	}
-
+	// 获取缓存的EndPoint节点信息
 	peerEndpoint, err := peer.GetPeerEndpoint()
 	if err != nil {
 		err = fmt.Errorf("Failed to get Peer Endpoint: %s", err)
 		return err
 	}
 	var peerHost string
+	// 获取peer地址
 	peerHost, _, err = net.SplitHostPort(peerEndpoint.Address)
 	if err != nil {
 		return fmt.Errorf("peer address is not in the format of host:port: %v", err)
@@ -143,30 +140,36 @@ func serve(args []string) error {
 
 	listenAddr := viper.GetString("peer.listenAddress")
 
+
 	serverConfig, err := peer.GetServerConfig()
 	if err != nil {
 		logger.Fatalf("Error loading secure config for peer (%s)", err)
 	}
+	// 创建grpc服务① Peer7051
 	peerServer, err := peer.CreatePeerServer(listenAddr, serverConfig)
 	if err != nil {
 		logger.Fatalf("Failed to create peer server (%s)", err)
 	}
-
+	// 检查TLS认证
 	if serverConfig.SecOpts.UseTLS {
 		logger.Info("Starting peer with TLS enabled")
 		// set up credential support
 		cs := comm.GetCredentialSupport()
+		// 设置服务器跟证书
 		cs.ServerRootCAs = serverConfig.SecOpts.ServerRootCAs
 
 		// set the cert to use if client auth is requested by remote endpoints
+		// 获取证书用户grpc链接
 		clientCert, err := peer.GetClientCertificate()
 		if err != nil {
 			logger.Fatalf("Failed to set TLS client certficate (%s)", err)
 		}
+		// 设置证书
 		comm.GetCredentialSupport().SetClientCertificate(clientCert)
 	}
 
 	//TODO - do we need different SSL material for events ?
+	// 创建grpc服务②：Eventhub，端口7053
 	ehubGrpcServer, err := createEventHubServer(serverConfig)
 	if err != nil {
 		grpclog.Fatalf("Failed to create ehub server: %v", err)
@@ -179,6 +182,7 @@ func serve(args []string) error {
 		}
 	}
 
+	// 创建grpc服务③： DeliverEvents，注册到peerServer上，端口7051
 	abServer := peer.NewDeliverEventsServer(mutualTLS, policyCheckerProvider, &peer.DeliverSupportManager{})
 	pb.RegisterDeliverServer(peerServer.Server(), abServer)
 
@@ -190,22 +194,27 @@ func serve(args []string) error {
 	if err != nil {
 		logger.Panic("Failed creating authentication layer:", err)
 	}
+	// 创建grpc服务④：链码管理服务
 	ccSrv, ccEndpoint, err := createChaincodeServer(ca, peerHost)
 	if err != nil {
 		logger.Panicf("Failed to create chaincode server: %s", err)
 	}
 	registerChaincodeSupport(ccSrv, ccEndpoint, ca)
+	// 启动循环处理
 	go ccSrv.Start()
 
 	logger.Debugf("Running peer")
 
 	// Register the Admin server
+	// 创建grpc服务 ⑤： Admin注册到PeerServer上 端口7051
 	pb.RegisterAdminServer(peerServer.Server(), core.NewAdminServer())
 
+	//隐私数据处理： 使用goosip协议进行分发
 	privDataDist := func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
 		return service.GetGossipService().DistributePrivateData(channel, txID, privateData)
 	}
 
+	//创建=grpc服务：背书服务 端口7051
 	serverEndorser := endorser.NewEndorserServer(privDataDist, &endorser.SupportImpl{})
 	libConf := library.Config{}
 	if err = viperutil.EnhancedExactUnmarshalKey("peer.handlers", &libConf); err != nil {
@@ -216,14 +225,15 @@ func serve(args []string) error {
 	// Register the Endorser server
 	pb.RegisterEndorserServer(peerServer.Server(), auth)
 
-	// Initialize gossip component
+	// Initialize gossip component 初始化goosip连接点
 	bootstrap := viper.GetStringSlice("peer.gossip.bootstrap")
 
+	// 获取本地msp前面者身份的序列号参数
 	serializedIdentity, err := mgmt.GetLocalSigningIdentityOrPanic().Serialize()
 	if err != nil {
 		logger.Panicf("Failed serializing self identity: %v", err)
 	}
-
+	// gossip加密服务组件
 	messageCryptoService := peergossip.NewMCS(
 		peer.NewChannelPolicyManagerGetter(),
 		localmsp.NewSigner(),
@@ -231,6 +241,7 @@ func serve(args []string) error {
 	secAdv := peergossip.NewSecurityAdvisor(mgmt.NewDeserializersManager())
 
 	// callback function for secure dial options for gossip service
+	// gossip 拨号
 	secureDialOpts := func() []grpc.DialOption {
 		var dialOpts []grpc.DialOption
 		// set max send/recv msg sizes
@@ -254,6 +265,7 @@ func serve(args []string) error {
 		return dialOpts
 	}
 
+	// 检查是否启用TSL
 	var certs *common2.TLSCertificates
 	if peerServer.TLSEnabled() {
 		serverCert := peerServer.ServerCertificate()
@@ -266,19 +278,22 @@ func serve(args []string) error {
 		certs.TLSClientCert.Store(&clientCert)
 	}
 
+	// 初始化gossip服务
 	err = service.InitGossipService(serializedIdentity, peerEndpoint.Address, peerServer.Server(), certs,
 		messageCryptoService, secAdv, secureDialOpts, bootstrap...)
 	if err != nil {
 		return err
 	}
+	// 停止获取goosipserver
 	defer service.GetGossipService().Stop()
 
-	//initialize system chaincodes
+	// 安装系统连码
 	initSysCCs()
 
-	//this brings up all the chains (including testchainid)
+	//peer 初始化连码,
 	peer.Initialize(func(cid string) {
 		logger.Debugf("Deploying system CC, for chain <%s>", cid)
+		// 初始化完成后部署系统连码到指定cid
 		scc.DeploySysCCs(cid)
 	})
 
@@ -290,6 +305,7 @@ func serve(args []string) error {
 	serve := make(chan error)
 
 	sigs := make(chan os.Signal, 1)
+	// 结束启动进程监听
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigs
@@ -297,6 +313,7 @@ func serve(args []string) error {
 		serve <- nil
 	}()
 
+	// 启动grpc 7051
 	go func() {
 		var grpcErr error
 		if grpcErr = peerServer.Start(); grpcErr != nil {
@@ -332,6 +349,7 @@ func serve(args []string) error {
 
 	// set the logging level for specific modules defined via environment
 	// variables or core.yaml
+	// 设置日志
 	overrideLogModules := []string{"msp", "gossip", "ledger", "cauthdsl", "policies", "grpc", "peer.gossip"}
 	for _, module := range overrideLogModules {
 		err = common.SetLogLevelFromViper(module)
@@ -339,10 +357,10 @@ func serve(args []string) error {
 			logger.Warningf("Error setting log level for module '%s': %s", module, err.Error())
 		}
 	}
-
+	//设置日志
 	flogging.SetPeerStartupModulesMap()
 
-	// Block until grpc server exits
+	// 阻塞启动，如果读取到则启动完成
 	return <-serve
 }
 

@@ -21,19 +21,23 @@ type PeerClient struct {
 
 // NewPeerClientFromEnv creates an instance of a PeerClient from the global
 // Viper instance
+//创建peer客户端
 func NewPeerClientFromEnv() (*PeerClient, error) {
+	//获取环境变量
 	address, override, clientConfig, err := configFromEnv("peer")
 	if err != nil {
 		return nil, errors.WithMessage(err,
 			"failed to load config for PeerClient")
 	}
-	// set timeout
+	// 设置超市3秒
 	clientConfig.Timeout = time.Second * 3
+	//创建grpc客户端
 	gClient, err := comm.NewGRPCClient(clientConfig)
 	if err != nil {
 		return nil, errors.WithMessage(err,
 			"failed to create PeerClient from config")
 	}
+	//创建peer客户端
 	pClient := &PeerClient{
 		commonClient: commonClient{
 			GRPCClient: gClient,
@@ -43,12 +47,15 @@ func NewPeerClientFromEnv() (*PeerClient, error) {
 }
 
 // Endorser returns a client for the Endorser service
+// 获取背书节点
 func (pc *PeerClient) Endorser() (pb.EndorserClient, error) {
+	//获取grpc链接
 	conn, err := pc.commonClient.NewConnection(pc.address, pc.sn)
 	if err != nil {
 		return nil, errors.WithMessage(err,
 			fmt.Sprintf("endorser client failed to connect to %s", pc.address))
 	}
+	// 创建背书客户端
 	return pb.NewEndorserClient(conn), nil
 }
 
@@ -65,6 +72,7 @@ func (pc *PeerClient) Admin() (pb.AdminClient, error) {
 // GetEndorserClient returns a new endorser client.  The target address for
 // the client is taken from the configuration setting "peer.address"
 func GetEndorserClient() (pb.EndorserClient, error) {
+	// 根据peer环境变量创建peer客户端
 	peerClient, err := NewPeerClientFromEnv()
 	if err != nil {
 		return nil, err

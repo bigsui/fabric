@@ -444,6 +444,7 @@ func CreateGetInstalledChaincodesProposal(creator []byte) (*peer.Proposal, strin
 }
 
 // CreateInstallProposalFromCDS returns a install proposal given a serialized identity and a ChaincodeDeploymentSpec
+//创建提案按消息
 func CreateInstallProposalFromCDS(ccpack proto.Message, creator []byte) (*peer.Proposal, string, error) {
 	return createProposalFromCDS("", ccpack, creator, "install")
 }
@@ -470,6 +471,7 @@ func CreateUpgradeProposalFromCDS(chainID string, cds *peer.ChaincodeDeploymentS
 }
 
 // createProposalFromCDS returns a deploy or upgrade proposal given a serialized identity and a ChaincodeDeploymentSpec
+//创建提案消息
 func createProposalFromCDS(chainID string, msg proto.Message, creator []byte, propType string, args ...[]byte) (*peer.Proposal, string, error) {
 	//in the new mode, cds will be nil, "deploy" and "upgrade" are instantiates.
 	var ccinp *peer.ChaincodeInput
@@ -497,14 +499,16 @@ func createProposalFromCDS(chainID string, msg proto.Message, creator []byte, pr
 		ccinp = &peer.ChaincodeInput{Args: [][]byte{[]byte(propType), b}}
 	}
 
-	//wrap the deployment in an invocation spec to lscc...
+	//系统链码描述.
 	lsccSpec := &peer.ChaincodeInvocationSpec{
 		ChaincodeSpec: &peer.ChaincodeSpec{
 			Type:        peer.ChaincodeSpec_GOLANG,
+			//调用lscc系统链码
 			ChaincodeId: &peer.ChaincodeID{Name: "lscc"},
 			Input:       ccinp}}
 
 	//...and get the proposal for it
+	//HeaderType_ENDORSER_TRANSACTION消息类型
 	return CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chainID, lsccSpec, creator)
 }
 

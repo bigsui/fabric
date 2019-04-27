@@ -192,7 +192,9 @@ var validationWorkersSemaphore *semaphore.Weighted
 // Initialize sets up any chains that the peer has from the persistence. This
 // function should be called at the start up when the ledger and gossip
 // ready
+//初始化账本
 func Initialize(init func(string)) {
+	// 获取并设置并发量
 	nWorkers := viper.GetInt("peer.validatorPoolSize")
 	if nWorkers <= 0 {
 		nWorkers = runtime.NumCPU()
@@ -203,35 +205,42 @@ func Initialize(init func(string)) {
 
 	var cb *common.Block
 	var ledger ledger.PeerLedger
+	//初始化账本管理器
 	ledgermgmt.Initialize(ConfigTxProcessors)
+	//获取账本id
 	ledgerIds, err := ledgermgmt.GetLedgerIDs()
 	if err != nil {
 		panic(fmt.Errorf("Error in initializing ledgermgmt: %s", err))
 	}
+	// 循环处理账本id
 	for _, cid := range ledgerIds {
 		peerLogger.Infof("Loading chain %s", cid)
+		//创建本地账本
 		if ledger, err = ledgermgmt.OpenLedger(cid); err != nil {
 			peerLogger.Warningf("Failed to load ledger %s(%s)", cid, err)
 			peerLogger.Debugf("Error while loading ledger %s with message %s. We continue to the next ledger rather than abort.", cid, err)
 			continue
 		}
+		//获取当前配置区块
 		if cb, err = getCurrConfigBlockFromLedger(ledger); err != nil {
 			peerLogger.Warningf("Failed to find config block on ledger %s(%s)", cid, err)
 			peerLogger.Debugf("Error while looking for config block on ledger %s with message %s. We continue to the next ledger rather than abort.", cid, err)
 			continue
 		}
 		// Create a chain if we get a valid ledger with config block
+		//创建链结构
 		if err = createChain(cid, ledger, cb); err != nil {
 			peerLogger.Warningf("Failed to load chain %s(%s)", cid, err)
 			peerLogger.Debugf("Error reloading chain %s with message %s. We continue to the next chain rather than abort.", cid, err)
 			continue
 		}
-
+		// 初始化通道，
 		InitChain(cid)
 	}
 }
 
 // InitChain takes care to initialize chain after peer joined, for example deploys system CCs
+// 初始化完成后调用chainInitializer方法
 func InitChain(cid string) {
 	if chainInitializer != nil {
 		// Initialize chaincode, namely deploy system CC
@@ -270,7 +279,10 @@ func getCurrConfigBlockFromLedger(ledger ledger.PeerLedger) (*common.Block, erro
 }
 
 // createChain creates a new chain object and insert it into the chains
+// 命令 peer channel join -b mychannel.block -o orderer.example.com:7050
+// 基于通道创世快创建通道了链结构，用于管理账本、通道配置等资源，以正常接收通道账本区块。
 func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
+	// 校验
 	chanConf, err := retrievePersistedChannelConfig(ledger)
 	if err != nil {
 		return err
@@ -336,6 +348,7 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 	if !ok {
 		ac = nil
 	}
+	// 创建链码支持对象
 	cs := &chainSupport{
 		Application: ac, // TODO, refactor as this is accessible through Manager
 		ledger:      ledger,
@@ -376,27 +389,34 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 		mspCallback,
 		peerSingletonCallback,
 	)
-
+	// 创建验证链码支持对象
 	vcs := struct {
 		*chainSupport
 		*semaphore.Weighted
 		Support
 	}{cs, validationWorkersSemaphore, GetSupport()}
+
+	// 创建交易验证器
 	validator := txvalidator.NewTxValidator(cid, vcs)
+
+	// 创建账本提交器，定义
 	c := committer.NewLedgerCommitterReactive(ledger, func(block *common.Block) error {
-		chainID, err := utils.GetChainIDFromBlock(block)
+		chainID, err := utils.GetChainIDFromBlock(block) // 获取chainid
 		if err != nil {
 			return err
 		}
+		// 设置置顶链的当前配置区块
 		return SetCurrConfigBlock(block, chainID)
 	})
 
+	// 获取orderer地址
 	ordererAddresses := bundle.ChannelConfig().OrdererAddresses()
 	if len(ordererAddresses) == 0 {
 		return errors.New("No ordering service endpoint provided in configuration block")
 	}
 
 	// TODO: does someone need to call Close() on the transientStoreFactory at shutdown of the peer?
+	//创建隐私数据存储
 	store, err := transientStoreFactory.OpenStore(bundle.ConfigtxValidator().ChainID())
 	if err != nil {
 		return errors.Wrapf(err, "Failed opening transient store for %s", bundle.ConfigtxValidator().ChainID())
@@ -404,13 +424,15 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 	simpleCollectionStore := privdata.NewSimpleCollectionStore(&collectionSupport{
 		PeerLedger: ledger,
 	})
+	// 初始化chanid的gossip协议 >>>
 	service.GetGossipService().InitializeChannel(bundle.ConfigtxValidator().ChainID(), ordererAddresses, service.Support{
-		Validator: validator,
-		Committer: c,
-		Store:     store,
-		Cs:        simpleCollectionStore,
+		Validator: validator, // 交易验证管理器
+		Committer: c, // 账本提交管理器
+		Store:     store, // transient隐私数据存储对象
+		Cs:        simpleCollectionStore, // 隐私数据集合存储对象
 	})
 
+	 //构造新的链结构并插入全局peer节点链结构字典
 	chains.Lock()
 	defer chains.Unlock()
 	chains.list[cid] = &chain{

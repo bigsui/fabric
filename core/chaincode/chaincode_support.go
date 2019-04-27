@@ -442,6 +442,7 @@ type ccLauncherImpl struct {
 }
 
 //launches the chaincode using the supplied context and notifier
+//启动容器
 func (ccl *ccLauncherImpl) launch(ctxt context.Context, notfy chan bool) (interface{}, error) {
 	//launch the chaincode
 	args, env, filesToUpload, err := ccl.ccSupport.getLaunchConfigs(ccl.cccid, ccl.cds.ChaincodeSpec.Type)
@@ -466,8 +467,9 @@ func (ccl *ccLauncherImpl) launch(ctxt context.Context, notfy chan bool) (interf
 	ccid := ccintf.CCID{ChaincodeSpec: ccl.cds.ChaincodeSpec, NetworkID: ccl.ccSupport.peerNetworkID, PeerID: ccl.ccSupport.peerID, Version: ccl.cccid.Version}
 	sir := container.StartImageReq{CCID: ccid, Builder: ccl.builder, Args: args, Env: env, FilesToUpload: filesToUpload, PrelaunchFunc: preLaunchFunc}
 	ipcCtxt := context.WithValue(ctxt, ccintf.GetCCHandlerKey(), ccl.ccSupport)
-
+	//容器类型 docker 或者system
 	vmtype, _ := ccl.ccSupport.getVMType(ccl.cds)
+	//启动
 	resp, err := container.VMCProcess(ipcCtxt, vmtype, sir)
 
 	return resp, err
@@ -477,6 +479,7 @@ func (ccl *ccLauncherImpl) launch(ctxt context.Context, notfy chan bool) (interf
 //the targz to create the image if not found. It uses the supplied launcher
 //for launching the chaincode. UTs use the launcher freely to test various
 //conditions such as timeouts, failed launches and other errors
+//等待启动并注册
 func (chaincodeSupport *ChaincodeSupport) launchAndWaitForRegister(ctxt context.Context, cccid *ccprovider.CCContext, cds *pb.ChaincodeDeploymentSpec, launcher launcherIntf) error {
 	canName := cccid.GetCanonicalName()
 	if canName == "" {
@@ -616,11 +619,12 @@ func (chaincodeSupport *ChaincodeSupport) Stop(context context.Context, cccid *c
 }
 
 // Launch will launch the chaincode if not running (if running return nil) and will wait for handler of the chaincode to get into FSM ready state.
+//启动链码容器
 func (chaincodeSupport *ChaincodeSupport) Launch(context context.Context, cccid *ccprovider.CCContext, spec interface{}) (*pb.ChaincodeID, *pb.ChaincodeInput, error) {
 	//build the chaincode
 	var cID *pb.ChaincodeID
 	var cMsg *pb.ChaincodeInput
-
+	// 获取部署 调用描述
 	var cds *pb.ChaincodeDeploymentSpec
 	var ci *pb.ChaincodeInvocationSpec
 	if cds, _ = spec.(*pb.ChaincodeDeploymentSpec); cds == nil {
@@ -635,14 +639,15 @@ func (chaincodeSupport *ChaincodeSupport) Launch(context context.Context, cccid 
 		cID = ci.ChaincodeSpec.ChaincodeId
 		cMsg = ci.ChaincodeSpec.Input
 	}
-
+	//获取名称
 	canName := cccid.GetCanonicalName()
 	chaincodeSupport.runningChaincodes.Lock()
 	var chrte *chaincodeRTEnv
 	var ok bool
 	var err error
-	//if its in the map, there must be a connected stream...nothing to do
+	//是否已经启动容器
 	if chrte, ok = chaincodeSupport.chaincodeHasBeenLaunched(canName); ok {
+		//已经启动
 		if !chrte.handler.registered {
 			chaincodeSupport.runningChaincodes.Unlock()
 			err = errors.Errorf("premature execution - chaincode (%s) launched and waiting for registration", canName)
@@ -658,10 +663,7 @@ func (chaincodeSupport *ChaincodeSupport) Launch(context context.Context, cccid 
 		}
 		chaincodeLogger.Debugf("Container not in READY state(%s)...send init/ready", chrte.handler.FSM.Current())
 	} else {
-		//chaincode is not up... but is the launch process underway? this is
-		//strictly not necessary as the actual launch process will catch this
-		//(in launchAndWaitForRegister), just a bit of optimization for thundering
-		//herds
+		//未启动，但标志启动，错误处理
 		if chaincodeSupport.launchStarted(canName) {
 			chaincodeSupport.runningChaincodes.Unlock()
 			err = errors.Errorf("premature execution - chaincode (%s) is being launched", canName)
@@ -700,19 +702,9 @@ func (chaincodeSupport *ChaincodeSupport) Launch(context context.Context, cccid 
 		}
 	}
 
-	//from here on : if we launch the container and get an error, we need to stop the container
-
-	//launch container if it is a System container or not in dev mode
+	// 启动容器
 	if (!chaincodeSupport.userRunsCC || cds.ExecEnv == pb.ChaincodeDeploymentSpec_SYSTEM) && (chrte == nil || chrte.handler == nil) {
-		//NOTE-We need to streamline code a bit so the data from LSCC gets passed to this thus
-		//avoiding the need to go to the FS. In particular, we should use cdsfs completely. It is
-		//just a vestige of old protocol that we continue to use ChaincodeDeploymentSpec for
-		//anything other than Install. In particular, instantiate, invoke, upgrade should be using
-		//just some form of ChaincodeInvocationSpec.
-		//
-		//But for now, if we are invoking we have gone through the LSCC path above. If  instantiating
-		//or upgrading currently we send a CDS with nil CodePackage. In this case the codepath
-		//in the endorser has gone through LSCC validation. Just get the code from the FS.
+
 		if cds.CodePackage == nil {
 			//no code bytes for these situations
 			if !(chaincodeSupport.userRunsCC || cds.ExecEnv == pb.ChaincodeDeploymentSpec_SYSTEM) {
@@ -725,9 +717,9 @@ func (chaincodeSupport *ChaincodeSupport) Launch(context context.Context, cccid 
 				chaincodeLogger.Debugf("launchAndWaitForRegister fetched %d bytes from file system", len(cds.CodePackage))
 			}
 		}
-
+		//创建docker容器
 		builder := func() (io.Reader, error) { return platforms.GenerateDockerBuild(cds) }
-
+		// 等待启动
 		err = chaincodeSupport.launchAndWaitForRegister(context, cccid, cds, &ccLauncherImpl{context, chaincodeSupport, cccid, cds, builder})
 		if err != nil {
 			chaincodeLogger.Errorf("launchAndWaitForRegister failed: %+v", err)
@@ -783,7 +775,7 @@ func createCCMessage(typ pb.ChaincodeMessage_Type, cid string, txid string, cMsg
 	return &pb.ChaincodeMessage{Type: typ, Payload: payload, Txid: txid, ChannelId: cid}, nil
 }
 
-// Execute executes a transaction and waits for it to complete until a timeout value.
+// 模拟执行
 func (chaincodeSupport *ChaincodeSupport) Execute(ctxt context.Context, cccid *ccprovider.CCContext, msg *pb.ChaincodeMessage, timeout time.Duration) (*pb.ChaincodeMessage, error) {
 	chaincodeLogger.Debugf("Entry")
 	defer chaincodeLogger.Debugf("Exit")

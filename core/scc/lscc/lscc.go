@@ -391,7 +391,7 @@ func isValidStatedbArtifactsTar(statedbArtifactsTar []byte) error {
 	return nil
 }
 
-// executeInstall implements the "install" Invoke transaction
+// 安装链码 peer chaincode install
 func (lscc *lifeCycleSysCC) executeInstall(stub shim.ChaincodeStubInterface, ccbytes []byte) error {
 	ccpack, err := ccprovider.GetCCPackage(ccbytes)
 	if err != nil {
@@ -403,16 +403,17 @@ func (lscc *lifeCycleSysCC) executeInstall(stub shim.ChaincodeStubInterface, ccb
 	if cds == nil {
 		return fmt.Errorf("nil deployment spec from from the CC package")
 	}
-
+	//检查链码名称
 	if err = lscc.isValidChaincodeName(cds.ChaincodeSpec.ChaincodeId.Name); err != nil {
 		return err
 	}
-
+	//检查版本
 	if err = lscc.isValidChaincodeVersion(cds.ChaincodeSpec.ChaincodeId.Name, cds.ChaincodeSpec.ChaincodeId.Version); err != nil {
 		return err
 	}
 
 	// Get any statedb artifacts from the chaincode package, e.g. couchdb index definitions
+	//解压状态db数据
 	statedbArtifactsTar, err := ccprovider.ExtractStatedbArtifactsFromCCPackage(ccpack)
 	if err != nil {
 		return err
@@ -431,12 +432,13 @@ func (lscc *lifeCycleSysCC) executeInstall(stub shim.ChaincodeStubInterface, ccb
 	// any channel's statedb where the chaincode is already instantiated
 	// Note - this step is done prior to PutChaincodeToLocalStorage() since this step is idempotent and harmless until endorsements start,
 	// that is, if there are errors deploying the indexes the chaincode install can safely be re-attempted later.
+	//处理安装，含有db数据
 	err = cceventmgmt.GetMgr().HandleChaincodeInstall(chaincodeDefinition, statedbArtifactsTar)
 	if err != nil {
 		return err
 	}
 
-	// Finally, if everything is good above, install the chaincode to local peer file system so that endorsements can start
+	//安装到本地文件系统
 	if err = lscc.support.PutChaincodeToLocalStorage(ccpack); err != nil {
 		return err
 	}
@@ -618,8 +620,7 @@ func (lscc *lifeCycleSysCC) Invoke(stub shim.ChaincodeStubInterface) pb.Response
 
 	function := string(args[0])
 
-	// Handle ACL:
-	// 1. get the signed proposal
+	// 1.获取签名的消息
 	sp, err := stub.GetSignedProposal()
 	if err != nil {
 		return shim.Error(fmt.Sprintf("Failed retrieving signed proposal on executing %s with error %s", function, err))
@@ -627,21 +628,23 @@ func (lscc *lifeCycleSysCC) Invoke(stub shim.ChaincodeStubInterface) pb.Response
 
 	switch function {
 	case INSTALL:
+		//安装链码
 		if len(args) < 2 {
 			return shim.Error(InvalidArgsLenErr(len(args)).Error())
 		}
 
-		// 2. check local MSP Admins policy
+		// 2. 检查 local MSP Admins 策略
 		if err = lscc.policyChecker.CheckPolicyNoChannel(mgmt.Admins, sp); err != nil {
 			return shim.Error(fmt.Sprintf("Authorization for INSTALL has been denied (error-%s)", err))
 		}
 
 		depSpec := args[1]
-
+		// 调用安装执行
 		err := lscc.executeInstall(stub, depSpec)
 		if err != nil {
 			return shim.Error(err.Error())
 		}
+		// 返回结果
 		return shim.Success([]byte("OK"))
 	case DEPLOY, UPGRADE:
 		// we expect a minimum of 3 arguments, the function

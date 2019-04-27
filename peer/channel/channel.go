@@ -35,8 +35,9 @@ const (
 )
 
 var logger = flogging.MustGetLogger("channelCmd")
-
+// 是否需要orderer节点支持
 type OrdererRequirement bool
+//是否需要背书节点支持
 type EndorserRequirement bool
 
 const (
@@ -47,7 +48,7 @@ const (
 )
 
 var (
-	// join related variables.
+	// 创始块文件
 	genesisBlockPath string
 
 	// create related variables
@@ -56,23 +57,23 @@ var (
 	timeout       int
 )
 
-// Cmd returns the cobra command for Node
+// 定义channel命令，并添加子命令
 func Cmd(cf *ChannelCmdFactory) *cobra.Command {
-	AddFlags(channelCmd)
-
-	channelCmd.AddCommand(createCmd(cf))
-	channelCmd.AddCommand(fetchCmd(cf))
-	channelCmd.AddCommand(joinCmd(cf))
-	channelCmd.AddCommand(listCmd(cf))
-	channelCmd.AddCommand(updateCmd(cf))
-	channelCmd.AddCommand(signconfigtxCmd(cf))
-	channelCmd.AddCommand(getinfoCmd(cf))
+	AddFlags(channelCmd)	// 添加peer channel命令参数
+	channelCmd.AddCommand(createCmd(cf))	//添加子命令 创建通道
+	channelCmd.AddCommand(fetchCmd(cf))		//添加子命令 获取区块
+	channelCmd.AddCommand(joinCmd(cf))		//添加子命令 加入通道
+	channelCmd.AddCommand(listCmd(cf)) 		//添加子命令 获取已加入的channel 列表
+	channelCmd.AddCommand(updateCmd(cf))	//添加子命令 更新通道
+	channelCmd.AddCommand(signconfigtxCmd(cf))	//添加子命令 签名配置
+	channelCmd.AddCommand(getinfoCmd(cf))		//添加子命令  获取通道信息
 
 	return channelCmd
 }
 
 // AddFlags adds flags for create and join
 func AddFlags(cmd *cobra.Command) {
+	// 添加 order参数 ，用于 channel create 、channel join
 	common.AddOrdererFlags(cmd)
 }
 
@@ -103,10 +104,12 @@ func attachFlags(cmd *cobra.Command, names []string) {
 	}
 }
 
+// 定义 peer channel 命令
 var channelCmd = &cobra.Command{
 	Use:              channelFuncName,
 	Short:            fmt.Sprint(shortDes),
 	Long:             fmt.Sprint(longDes),
+	// 执行命令前 添加order需要的参数
 	PersistentPreRun: common.SetOrdererEnv,
 }
 
@@ -114,41 +117,45 @@ type BroadcastClientFactory func() (common.BroadcastClient, error)
 
 // ChannelCmdFactory holds the clients used by ChannelCmdFactory
 type ChannelCmdFactory struct {
-	EndorserClient   pb.EndorserClient
-	Signer           msp.SigningIdentity
-	BroadcastClient  common.BroadcastClient
-	DeliverClient    deliverClientIntf
-	BroadcastFactory BroadcastClientFactory
+	EndorserClient   pb.EndorserClient		// 背书节点
+	Signer           msp.SigningIdentity	// 签名
+	BroadcastClient  common.BroadcastClient // 广播服务客户端
+	DeliverClient    deliverClientIntf		// 分发服务客户端，发送区块请求消息
+	BroadcastFactory BroadcastClientFactory	// 方法，用于获取BroadcastClient
 }
 
 // InitCmdFactory init the ChannelCmdFactory with clients to endorser and orderer according to params
+//根据是否需要背书节点 排序节点 初始化cmdfactory，各个子命令执行时会调用
 func InitCmdFactory(isEndorserRequired EndorserRequirement, isOrdererRequired OrdererRequirement) (*ChannelCmdFactory, error) {
 	var err error
 
 	cmdFact := &ChannelCmdFactory{}
-
+	//获取默认签名
 	cmdFact.Signer, err = common.GetDefaultSignerFnc()
 	if err != nil {
 		return nil, fmt.Errorf("Error getting default signer: %s", err)
 	}
-
+	// 获取广播客户端方法
 	cmdFact.BroadcastFactory = func() (common.BroadcastClient, error) {
 		return common.GetBroadcastClientFnc()
 	}
 
-	//for join and list, we need the endorser as well
+	// join list getinfo 需要背书节点
 	if isEndorserRequired {
+		// 获取背书节点客户端
 		cmdFact.EndorserClient, err = common.GetEndorserClientFnc()
 		if err != nil {
 			return nil, fmt.Errorf("Error getting endorser client %s: %s", channelFuncName, err)
 		}
 	}
 
-	//for create and fetch, we need the orderer as well
+	//create fetch 需要order节点支持
 	if isOrdererRequired {
+		// 校验order节点地址
 		if len(strings.Split(common.OrderingEndpoint, ":")) != 2 {
 			return nil, fmt.Errorf("ordering service endpoint %s is not valid or missing", common.OrderingEndpoint)
 		}
+		// 创建分发客户端，用于向order节点请求消息
 		cmdFact.DeliverClient, err = newDeliverClient(channelID)
 		if err != nil {
 			return nil, err

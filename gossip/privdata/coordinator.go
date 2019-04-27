@@ -143,9 +143,11 @@ func (c *coordinator) StorePvtData(txID string, privData *rwset.TxPvtReadWriteSe
 
 // StoreBlock stores block with private data into the ledger
 func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDataCollections) error {
+	//检查空数据
 	if block.Data == nil {
 		return errors.New("Block data is empty")
 	}
+	// 检查区块头
 	if block.Header == nil {
 		return errors.New("Block header is nil")
 	}
@@ -153,23 +155,25 @@ func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDa
 	logger.Infof("[%s] Received block [%d] from buffer", c.ChainID, block.Header.Number)
 
 	logger.Debugf("[%s] Validating block [%d]", c.ChainID, block.Header.Number)
+	// 验证区块，调用VSCC系统链码 >>>
 	err := c.Validator.Validate(block)
 	if err != nil {
 		logger.Errorf("Validation failed: %+v", err)
 		return err
 	}
 
+	// 隐私数据处理
 	blockAndPvtData := &ledger.BlockAndPvtData{
 		Block:        block,
 		BlockPvtData: make(map[uint64]*ledger.TxPvtData),
 	}
-
+	// 获取隐私数据集
 	ownedRWsets, err := computeOwnedRWsets(block, privateDataSets)
 	if err != nil {
 		logger.Warning("Failed computing owned RWSets", err)
 		return err
 	}
-
+    // 获取缺少的隐私数据信息（本地和其他节点）
 	privateInfo, err := c.listMissingPrivateData(block, ownedRWsets)
 	if err != nil {
 		logger.Warning(err)
@@ -204,6 +208,7 @@ func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDa
 	}
 
 	// populate the private RWSets passed to the ledger
+	// 构造隐私数据
 	for seqInBlock, nsRWS := range ownedRWsets.bySeqsInBlock() {
 		rwsets := nsRWS.toRWSet()
 		logger.Debugf("[%s] Added %d namespace private write sets for block [%d], tran [%d]", c.ChainID, len(rwsets.NsPvtRwset), block.Header.Number, seqInBlock)
@@ -214,6 +219,7 @@ func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDa
 	}
 
 	// populate missing RWSets to be passed to the ledger
+	//构造缺失隐私数据
 	for missingRWS := range privateInfo.missingKeys {
 		blockAndPvtData.Missing = append(blockAndPvtData.Missing, ledger.MissingPrivateData{
 			TxId:       missingRWS.txID,
@@ -224,11 +230,13 @@ func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDa
 	}
 
 	// commit block and private data
+	// 提交区块和隐私数据
 	err = c.CommitWithPvtData(blockAndPvtData)
 	if err != nil {
 		return errors.Wrap(err, "commit failed")
 	}
 
+	// 清除指定交易的隐私数据
 	if len(blockAndPvtData.BlockPvtData) > 0 {
 		// Finally, purge all transactions in block - valid or not valid.
 		if err := c.PurgeByTxids(privateInfo.txns); err != nil {
@@ -236,6 +244,7 @@ func (c *coordinator) StoreBlock(block *common.Block, privateDataSets util.PvtDa
 		}
 	}
 
+	// 清除transient指定高度一下的隐私数据
 	seq := block.Header.Number
 	if seq%c.transientBlockRetention == 0 && seq > c.transientBlockRetention {
 		err := c.PurgeByHeight(seq - c.transientBlockRetention)

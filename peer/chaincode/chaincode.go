@@ -33,13 +33,13 @@ func addFlags(cmd *cobra.Command) {
 func Cmd(cf *ChaincodeCmdFactory) *cobra.Command {
 	addFlags(chaincodeCmd)
 
-	chaincodeCmd.AddCommand(installCmd(cf))
-	chaincodeCmd.AddCommand(instantiateCmd(cf))
-	chaincodeCmd.AddCommand(invokeCmd(cf))
-	chaincodeCmd.AddCommand(packageCmd(cf, nil))
-	chaincodeCmd.AddCommand(queryCmd(cf))
-	chaincodeCmd.AddCommand(signpackageCmd(cf))
-	chaincodeCmd.AddCommand(upgradeCmd(cf))
+	chaincodeCmd.AddCommand(installCmd(cf))				// 添加install
+	chaincodeCmd.AddCommand(instantiateCmd(cf))			// 添加instantiate
+	chaincodeCmd.AddCommand(invokeCmd(cf))				// 添加invoke
+	chaincodeCmd.AddCommand(packageCmd(cf, nil))// 添加package
+	chaincodeCmd.AddCommand(queryCmd(cf))				// 添加query
+	chaincodeCmd.AddCommand(signpackageCmd(cf))			// 添加signpackage
+	chaincodeCmd.AddCommand(upgradeCmd(cf))	
 	chaincodeCmd.AddCommand(listCmd(cf))
 
 	return chaincodeCmd
@@ -70,6 +70,7 @@ var chaincodeCmd = &cobra.Command{
 	Use:              chainFuncName,
 	Short:            fmt.Sprint(shortDes),
 	Long:             fmt.Sprint(longDes),
+	//prerun设置order环境
 	PersistentPreRun: common.SetOrdererEnv,
 }
 

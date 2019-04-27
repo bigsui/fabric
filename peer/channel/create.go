@@ -141,12 +141,13 @@ func sanityCheckAndSignConfigTx(envConfigUpdate *cb.Envelope) (*cb.Envelope, err
 
 	return utils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelID, signer, configUpdateEnv, 0, 0)
 }
-
+//发送创建通道交易  Envelope 类型
 func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 	var err error
 	var chCrtEnv *cb.Envelope
-
+	//检查通道tx文件
 	if channelTxFile != "" {
+		// 创建通道配置交易消息
 		if chCrtEnv, err = createChannelFromConfigTx(channelTxFile); err != nil {
 			return err
 		}
@@ -155,7 +156,7 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 			return err
 		}
 	}
-
+	//检查并签名消息
 	if chCrtEnv, err = sanityCheckAndSignConfigTx(chCrtEnv); err != nil {
 		return err
 	}
@@ -167,28 +168,29 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 	}
 
 	defer broadcastClient.Close()
+	// 发送到order
 	err = broadcastClient.Send(chCrtEnv)
 
 	return err
 }
-
+//创建通道
 func executeCreate(cf *ChannelCmdFactory) error {
 	var err error
-
+	//创建应用通道
 	if err = sendCreateChainTransaction(cf); err != nil {
 		return err
 	}
-
+	//获取创始块
 	var block *cb.Block
 	if block, err = getGenesisBlock(cf); err != nil {
 		return err
 	}
-
+	//序列化
 	b, err := proto.Marshal(block)
 	if err != nil {
 		return err
 	}
-
+	//写入文件
 	file := channelID + ".block"
 	if err = ioutil.WriteFile(file, b, 0644); err != nil {
 		return err
@@ -196,7 +198,7 @@ func executeCreate(cf *ChannelCmdFactory) error {
 
 	return nil
 }
-
+//创建通道命令
 func create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 	//the global chainID filled by the "-c" command
 	if channelID == common.UndefinedParamValue {
@@ -205,10 +207,12 @@ func create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 
 	var err error
 	if cf == nil {
+		// 初始化命令行cf
 		cf, err = InitCmdFactory(EndorserNotRequired, OrdererRequired)
 		if err != nil {
 			return err
 		}
 	}
+	// 执行创建
 	return executeCreate(cf)
 }

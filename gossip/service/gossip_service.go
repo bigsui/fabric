@@ -214,6 +214,7 @@ type DataStoreSupport struct {
 }
 
 // InitializeChannel allocates the state provider and should be invoked once per channel per execution
+//初始化gossip协议
 func (g *gossipServiceImpl) InitializeChannel(chainID string, endpoints []string, support Support) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
@@ -233,19 +234,21 @@ func (g *gossipServiceImpl) InitializeChannel(chainID string, endpoints []string
 	fetcher := privdata2.NewPuller(support.Cs, g.gossipSvc, dataRetriever, chainID)
 
 	coordinator := privdata2.NewCoordinator(privdata2.Support{
-		ChainID:         chainID,
-		CollectionStore: support.Cs,
-		Validator:       support.Validator,
-		TransientStore:  support.Store,
-		Committer:       support.Committer,
-		Fetcher:         fetcher,
+		ChainID:         chainID, // 链id
+		CollectionStore: support.Cs, // 隐私数据
+		Validator:       support.Validator, // 交易验证器
+		TransientStore:  support.Store, // 隐私数据存储对象
+		Committer:       support.Committer, // 账本提交器
+		Fetcher:         fetcher, // fetcher组件
 	}, g.createSelfSignedData())
 
+	// 隐私数据处理handler
 	g.privateHandlers[chainID] = privateHandler{
 		support:     support,
-		coordinator: coordinator,
-		distributor: privdata2.NewDistributor(chainID, g),
+		coordinator: coordinator, // 保存账本
+		distributor: privdata2.NewDistributor(chainID, g), // 分发
 	}
+	// 创建通道state并存储，负责接收与处理 DataMsg数据消息、StateRequest远程状态请求消息、StateResponse消息、Private隐私数据消息
 	g.chains[chainID] = state.NewGossipStateProvider(chainID, servicesAdapter, coordinator)
 	if g.deliveryService[chainID] == nil {
 		var err error

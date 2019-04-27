@@ -27,21 +27,23 @@ import (
 	"golang.org/x/net/context"
 )
 
-//Execute - execute proposal, return original response of chaincode
+//执行提案，返回链码的原始响应
 func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}) (*pb.Response, *pb.ChaincodeEvent, error) {
 	var err error
 	var cds *pb.ChaincodeDeploymentSpec
 	var ci *pb.ChaincodeInvocationSpec
 
 	//init will call the Init method of a on a chain
+	//默认调用init方法
 	cctyp := pb.ChaincodeMessage_INIT
 	if cds, _ = spec.(*pb.ChaincodeDeploymentSpec); cds == nil {
+		// 如果invoke调用规范
 		if ci, _ = spec.(*pb.ChaincodeInvocationSpec); ci == nil {
 			panic("Execute should be called with deployment or invocation spec")
 		}
 		cctyp = pb.ChaincodeMessage_TRANSACTION
 	}
-
+	// 启动链码容器
 	_, cMsg, err := theChaincodeSupport.Launch(ctxt, cccid, spec)
 	if err != nil {
 		return nil, nil, err
@@ -49,12 +51,13 @@ func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}
 
 	cMsg.Decorations = cccid.ProposalDecorations
 
+	//链码消息 chaincodeMessage类型
 	var ccMsg *pb.ChaincodeMessage
 	ccMsg, err = createCCMessage(cctyp, cccid.ChainID, cccid.TxID, cMsg)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "failed to create chaincode message")
 	}
-
+	//模拟执行
 	resp, err := theChaincodeSupport.Execute(ctxt, cccid, ccMsg, theChaincodeSupport.executetimeout)
 	if err != nil {
 		// Rollback transaction
@@ -63,12 +66,12 @@ func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}
 		// Rollback transaction
 		return nil, nil, errors.Errorf("failed to receive a response for txid (%s)", cccid.TxID)
 	}
-
+	//处理结果
 	if resp.ChaincodeEvent != nil {
 		resp.ChaincodeEvent.ChaincodeId = cccid.Name
 		resp.ChaincodeEvent.TxId = cccid.TxID
 	}
-
+	//成功处理
 	if resp.Type == pb.ChaincodeMessage_COMPLETED {
 		res := &pb.Response{}
 		unmarshalErr := proto.Unmarshal(resp.Payload, res)
@@ -79,7 +82,7 @@ func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}
 		// Success
 		return res, resp.ChaincodeEvent, nil
 	} else if resp.Type == pb.ChaincodeMessage_ERROR {
-		// Rollback transaction
+		// 处理失败
 		return nil, resp.ChaincodeEvent, errors.Errorf("transaction returned with failure: %s", string(resp.Payload))
 	}
 
